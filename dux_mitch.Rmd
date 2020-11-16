@@ -1,0 +1,431 @@
+---
+title: "Multi-contrast enrichment analysis of DUX data"
+author: "Mark Ziemann"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+theme: cosmo
+---
+
+# Introduction
+
+The goal here is to perform enrichment analysis with the human and mouse DUX data.
+
+```{r,libs}
+
+suppressPackageStartupMessages({
+  library("mitch")
+  library("DESeq2")
+  library("edgeR")
+  library("eulerr")
+  library("UpSetR")
+  library("gplots")
+})
+
+```
+
+# Prepare human FSHD data
+
+```{r,fshd}
+
+ss <- read.table("fshd.txt",header=TRUE)
+md <- getDEE2Metadata("hsapiens")
+mymd <- md[which(md$Sample_name %in% ss$Accession),]
+ss <- merge(mymd,ss,by.x="Sample_name",by.y="Accession")
+SRRvec <- ss$SRR_accession
+x <- getDEE2(species="hsapiens",SRRvec=SRRvec,legacy=TRUE)
+xx <- x$GeneCounts
+
+design <- model.matrix(~ss$Group)
+rownames(design) <- ss$SRR_accession
+
+xx <- xx[,which(colnames(xx) %in% rownames(design) )]
+xx <- xx[which(rowMeans(xx)>10),]
+z <- DGEList(counts=xx)
+z <- calcNormFactors(z)
+z <- estimateDisp(z, design,robust=TRUE,prior.df=1)
+fit <- glmFit(z, design)
+lrt <- glmLRT(fit)
+fshd <- as.data.frame(topTags(lrt,n=Inf))
+
+fshd_up <- rownames(subset(fshd,FDR<0.05 & logFC>0))
+fshd_dn <- rownames(subset(fshd,FDR<0.05 & logFC<0))
+
+# Read in Watt data
+# human 
+h <- read.table("dux2_edgeR_edger.tsv",header=TRUE,row.names=1)
+rownames(h) <- sapply(strsplit(rownames(h),"_"),"[[",1)
+
+h_up <- rownames(subset(h,FDR<0.05 & logFC>0))
+h_dn <- rownames(subset(h,FDR<0.05 & logFC<0))
+
+v1 <- list("fshd up"=fshd_up, "fshd dn"=fshd_dn,
+  "h up"=h_up,"h dn"=h_dn)
+
+plot(euler(v1),quantities = TRUE)
+
+```
+
+# Prepare Jones data
+
+1. MCM: strain: ACTA1-MCM/+; treatment: no tamoxifen (CONTROL)
+
+2. FLExD: strain: FLExDUX4/+treatment: no tamoxifen (DO NOT USE)
+
+3. dTGM: strain: FLExDUX4/+;MCM/+ treatment: one 5 mg/kg IP injection of tamoxifen (CASE - MILD)
+
+4. dTGS: FLExDUX4/+;MCM/+ treatment: two 10 mg/kg IP injections of tamoxifen on consecutive days (CASE - SEVERE)
+
+```{r,jones}
+
+# mouse GSE122562
+#URL="https://ftp.ncbi.nlm.nih.gov/geo/series/GSE122nnn/GSE122562/suppl/GSE122562_gene_counts$
+j <- read.table("GSE122562_gene_counts_table.tsv.gz",header=TRUE,row.names=1)
+j[,1]<-NULL
+ss <- as.data.frame(colnames(j))
+ss$mcm <- grepl("MCM",ss[,1])*1
+ss$flexd <- grepl("FLExD",ss[,1])*1
+ss$dtgm <- grepl("dTGM",ss[,1])*1
+ss$dtgs <- grepl("dTGS",ss[,1])*1
+rownames(ss) <- ss[,1]
+ss[,1]<-NULL
+# here set the contrast
+sss <- subset(ss,mcm==1|dtgm==1)
+design <- model.matrix(~sss$dtgm)
+rownames(design) <- rownames(sss)
+jj <- j[,which(colnames(j) %in% rownames(design) )]
+jj <- jj[which(rowMeans(jj)>10),]
+z <- DGEList(counts=jj)
+z <- calcNormFactors(z)
+z <- estimateDisp(z, design,robust=TRUE,prior.df=1)
+fit <- glmFit(z, design)
+lrt<-glmLRT(fit)
+dge<-as.data.frame(topTags(lrt,n=Inf))
+dge$dispersion<-lrt$dispersion
+dge<-merge(dge,lrt$fitted.values,by='row.names')
+rownames(dge)=dge$Row.names
+dge$Row.names=NULL
+dge<-dge[order(dge$PValue),]
+head(dge,10)
+jm <- dge
+
+sss <- subset(ss,mcm==1|dtgs==1)
+design <- model.matrix(~sss$dtgs)
+rownames(design) <- rownames(sss)
+jj <- j[,which(colnames(j) %in% rownames(design) )]
+jj <- jj[which(rowMeans(jj)>10),]
+z <- DGEList(counts=jj)
+z <- calcNormFactors(z)
+z <- estimateDisp(z, design,robust=TRUE,prior.df=1)
+fit <- glmFit(z, design)
+lrt<-glmLRT(fit)
+dge<-as.data.frame(topTags(lrt,n=Inf))
+dge$dispersion<-lrt$dispersion
+dge<-merge(dge,lrt$fitted.values,by='row.names')
+rownames(dge)=dge$Row.names
+dge$Row.names=NULL
+dge<-dge[order(dge$PValue),]
+head(dge,10)
+js <- dge
+
+```
+
+Now to see how similar these contrasts are.
+The overlap is really high, therefore I suggest only using the moderate contrast in downstream mitch analysis.
+
+```{r,jvenn}
+
+jm_up <- rownames(subset(jm,FDR<0.05 & logFC>0))
+jm_dn <- rownames(subset(jm,FDR<0.05 & logFC<0))
+
+js_up <- rownames(subset(js,FDR<0.05 & logFC>0))
+js_dn <- rownames(subset(js,FDR<0.05 & logFC<0))
+
+v1 <- list("mod up"=jm_up, "mod dn"=jm_dn,
+  "sev up"=js_up,"sev dn"=js_dn)
+
+plot(euler(v1),quantities = TRUE)
+
+```
+
+# Read in Watt data
+
+```{r,read_m}
+
+# mouse simple
+# we're not using the factorial
+ms <- read.table("EVvsDUX_wDOX_paired.tsv",header=TRUE,row.names=1)
+rownames(ms) <- sapply(strsplit(rownames(ms),"_"),"[[",1)
+
+# ortholog mapping
+orth <- read.table("mouse2human.txt.sort")
+
+# gene name mapping human
+gth <- orth[,c(1,3)]
+
+# gene name mapping human
+gtm <- orth[,c(2,3)]
+
+```
+
+Calculate overlap
+
+```{r,ol}
+
+jm_up <- rownames(subset(jm,FDR<0.05 & logFC>0))
+jm_dn <- rownames(subset(jm,FDR<0.05 & logFC<0))
+
+h_up <- rownames(subset(h,FDR<0.05 & logFC>0))
+h_dn <- rownames(subset(h,FDR<0.05 & logFC<0))
+
+ms_up <- rownames(subset(ms,FDR<0.05 & logFC>0))
+ms_dn <- rownames(subset(ms,FDR<0.05 & logFC<0))
+
+l <- list("jm_up"=jm_up,"jm_dn"=jm_dn,
+  "h_up"=h_up,"h_dn"=h_dn,
+  "fshd up"=fshd_up,"fshd dn"=fshd_dn,
+  "ms_up"=ms_up,"ms_dn"=ms_dn)
+
+barplot(unlist(lapply(l,length)),main='no. DEGs')
+
+# here are the values
+unlist(lapply(l,length))
+
+# convert lists to human gene names
+jm_up <- unique(gtm[which(gtm$V2 %in% jm_up ),2])
+jm_dn <- unique(gtm[which(gtm$V2 %in% jm_dn ),2])
+
+h_up <- unique(gth[which(gth$V1 %in% h_up ),2])
+h_dn <- unique(gth[which(gth$V1 %in% h_dn ),2])
+
+ms_up <- unique(gtm[which(gtm$V2 %in% ms_up ),2])
+ms_dn <- unique(gtm[which(gtm$V2 %in% ms_dn ),2])
+
+fshd_up <- unique(gth[which(gth$V1 %in% fshd_up ),2])
+fshd_dn <- unique(gth[which(gth$V1 %in% fshd_dn ),2])
+
+
+v1 <- list("jm up"=jm_up, 
+  "jm dn"=jm_dn,
+  "h up"=h_up,
+  "h dn"=h_dn,
+  "fshd up" = fshd_up,
+  "fshd dn" = fshd_dn,
+  "ms up"=ms_up,
+  "ms dn"=ms_dn )
+
+plot(euler(v1),quantities = TRUE)
+
+upset(fromList(v1), order.by = "freq", nsets=6)
+
+```
+
+This is a bit confusing, so we will do separate Venns, comparing each model data with the human fshd data.
+We can see that the concordance with human is higher with the Watt data as compared to the Jones data.
+Here, I define concordance ratio as the number of FDR genes that are commonly dysregulated divided by the number of genes
+with discordant expression.
+
+
+```{r,venn2}
+
+# human model
+
+v1 <- list("fshd up"=fshd_up,
+  "fshd dn"=fshd_dn,
+  "h up"=h_up,
+  "h dn"=h_dn)
+
+plot(euler(v1),quantities = TRUE)
+
+h_concordance <- (length(intersect(fshd_up,h_up))+length(intersect(fshd_dn,h_dn)))  /
+  (length(intersect(fshd_up,h_dn))+length(intersect(fshd_dn,h_up)))
+
+h_concordance
+
+# jones mouse model
+
+v1 <- list("fshd up"=fshd_up,
+  "fshd dn"=fshd_dn,
+  "jm up"=jm_up,
+  "jm dn"=jm_dn)
+
+plot(euler(v1),quantities = TRUE)
+
+j_concordance <- (length(intersect(fshd_up,jm_up))+length(intersect(fshd_dn,jm_dn)))  / 
+  (length(intersect(fshd_up,jm_dn))+length(intersect(fshd_dn,jm_up)))
+
+j_concordance
+
+# Watt mouse model
+v1 <- list( "fshd up"=fshd_up,
+  "fshd dn"=fshd_dn,
+  "ms up"=ms_up,
+  "ms dn"=ms_dn )
+
+plot(euler(v1),quantities = TRUE)
+
+ms_concordance <- (length(intersect(fshd_up,ms_up))+length(intersect(fshd_dn,ms_dn)))  /  
+  (length(intersect(fshd_up,ms_dn))+length(intersect(fshd_dn,ms_up)))
+
+ms_concordance
+
+barplot(c(h_concordance,j_concordance,ms_concordance),
+  names.arg=c("human model","Jones mouse","Watt mouse"),
+  main="concordance ratio")
+
+```
+
+# Get gene sets
+
+```{r,geneset}
+
+#download.file("https://reactome.org/download/current/ReactomePathways.gmt.zip", destfile="ReactomePathways.gmt.zip")
+#unzip("ReactomePathways.gmt.zip")
+genesets <- gmt_import("ReactomePathways.gmt")
+
+```
+
+# Prepare data for running mitch
+
+The mitch_import function creates
+
+```{r,mitch1,fig.width=8,fig.height=8}
+
+
+hh <- list("fshd"=fshd,"human model"=h)
+hhh <- mitch_import(x=hh,DEtype="edger",geneTable=gth)
+
+mm <- list("ms"=ms,"jm"=jm)
+mmm <- mitch_import(x=mm,DEtype="edger",geneTable=gtm)
+
+mg <- merge(hhh,mmm,by=0)
+rownames(mg) <- mg[,1]
+mg[,1]<-NULL
+colnames(mg) <- c("FSHD","hu_model","Watt_m","Jones_m")
+dim(mg)
+head(mg)
+
+mg <- apply(mg,2, function(x) {
+  x[which(x==Inf)] <- 300 ;  x[which(x==-Inf)] <- -300   ; return(x) 
+} )
+
+# pearson
+round(cor(mg,method='p'),3)
+
+# spearman
+round(cor(mg,method='s'),3)
+
+colfunc <- colorRampPalette(c("blue","white", "red"))
+heatmap.2(cor(mg,method='s'),
+  cellnote=round(cor(mg,method='s'),3),
+  trace="none",scale="none",margins=c(15,15),
+  col=colfunc(25), notecex=2 , main="Spearman")
+
+```
+
+Here we run mitch unidimensional and then create Venn diagrams of the FDR gene sets.
+
+```{r,mitch_unidimensional,fig.height=8,fig.width=8}
+
+fshdm <- mitch_import( fshd,DEtype="edger",geneTable=gth )
+fshdmres <- mitch_calc(x=fshdm,genesets=genesets,priority="effect",resrows=100)
+head(fshdmres$enrichment_result,20)
+fsdhm_up <- subset(fshdmres$enrichment_result,p.adjustANOVA<0.02 & s.dist > 0)$set
+fshdm_dn <- subset(fshdmres$enrichment_result,p.adjustANOVA<0.02 & s.dist < 0)$set
+
+hmm <- mitch_import( h,DEtype="edger",geneTable=gth )
+hres <- mitch_calc(x=hmm,genesets=genesets,priority="effect",resrows=100)
+head(hres$enrichment_result,20)
+hres_up <- subset(hres$enrichment_result,p.adjustANOVA<0.02 & s.dist > 0)$set
+hres_dn <- subset(hres$enrichment_result,p.adjustANOVA<0.02 & s.dist < 0)$set
+
+jmm <- mitch_import( jm,DEtype="edger",geneTable=gtm )
+jres <- mitch_calc(x=jmm,genesets=genesets,priority="effect",resrows=100)
+head(jres$enrichment_result,20)
+jres_up <- subset(jres$enrichment_result,p.adjustANOVA<0.02 & s.dist > 0)$set
+jres_dn <- subset(jres$enrichment_result,p.adjustANOVA<0.02 & s.dist < 0)$set
+
+msm <- mitch_import( ms,DEtype="edger",geneTable=gtm )
+mres <- mitch_calc(x=msm,genesets=genesets,priority="effect",resrows=100)
+head(mres$enrichment_result,20)
+mres_up <- subset(mres$enrichment_result,p.adjustANOVA<0.02 & s.dist > 0)$set
+mres_dn <- subset(mres$enrichment_result,p.adjustANOVA<0.02 & s.dist < 0)$set
+
+v1 <- list("fshd up"=fsdhm_up,
+  "fshd dn"=fshdm_dn,
+  "h up"=hres_up,
+  "h dn"=hres_dn)
+
+plot(euler(v1),quantities = TRUE)
+
+v1 <- list("fshd up"=fsdhm_up,
+  "fshd dn"=fshdm_dn,
+  "j up"=jres_up,
+  "j dn"=jres_dn)
+
+plot(euler(v1),quantities = TRUE)
+
+v1 <- list("fshd up"=fsdhm_up,
+  "fshd dn"=fshdm_dn,
+  "m up"=mres_up,
+  "m dn"=mres_dn)
+
+plot(euler(v1),quantities = TRUE)
+
+```
+
+Here we run multivariate mitch with different prioritisation schemes.
+
+```{r,mitch,fig.height=8,fig.width=8}
+
+# effect size
+
+res1 <- mitch_calc(x=mg,genesets=genesets,priority="effect",resrows=100)
+
+x <- res1$enrichment_result[1:100,c(4:7)]
+rownames(x) <- res1$enrichment_result$set[1:nrow(x)]
+
+colfunc <- colorRampPalette(c("blue","white", "red"))
+
+heatmap.2(as.matrix(x),col=colfunc(30),margins=c(5,25),trace="none",
+  scale="none",cexCol=0.6,cexRow=0.25)
+
+unlink("mitch_plots_simple_eff.html")
+
+capture.output(
+    mitch_report(res1,"mitch_plots_simple_eff.html")
+  ,file = "/dev/null", append = FALSE,
+  type = c("output", "message"), split = FALSE)
+
+# significance
+res3 <- mitch_calc(x=mg,genesets=genesets,priority="significance",resrows=100)
+
+x <- res3$enrichment_result[1:100,c(4:7)]
+rownames(x) <- res3$enrichment_result$set[1:nrow(x)]
+
+colfunc <- colorRampPalette(c("blue","white", "red"))
+
+heatmap.2(as.matrix(x),col=colfunc(30),margins=c(5,25),trace="none",
+  scale="none",cexCol=0.6, cexRow=0.25)
+
+# discordance
+res2 <- mitch_calc(x=mg,genesets=genesets,priority="SD",resrows=100)
+
+x <- res2$enrichment_result[1:100,c(4:7)]
+rownames(x) <- res2$enrichment_result$set[1:nrow(x)]
+
+colfunc <- colorRampPalette(c("blue","white", "red"))
+
+heatmap.2(as.matrix(x),col=colfunc(30),margins=c(5,25),trace="none",
+  scale="none",cexCol=0.6, cexRow=0.25)
+
+```
+
+# Session information
+
+```{r,session}
+
+sessionInfo()
+
+```
