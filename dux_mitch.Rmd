@@ -8,6 +8,8 @@ output:
 theme: cosmo
 ---
 
+Source: https://github.com/markziemann/dux
+
 # Introduction
 
 The goal here is to perform enrichment analysis with the human and mouse DUX data.
@@ -21,6 +23,7 @@ suppressPackageStartupMessages({
   library("eulerr")
   library("UpSetR")
   library("gplots")
+  library("getDEE2")
 })
 
 ```
@@ -34,7 +37,7 @@ md <- getDEE2Metadata("hsapiens")
 mymd <- md[which(md$Sample_name %in% ss$Accession),]
 ss <- merge(mymd,ss,by.x="Sample_name",by.y="Accession")
 SRRvec <- ss$SRR_accession
-x <- getDEE2(species="hsapiens",SRRvec=SRRvec,legacy=TRUE)
+x <- getDEE2(species="hsapiens",SRRvec=SRRvec,legacy=TRUE,metadata=md)
 xx <- x$GeneCounts
 
 design <- model.matrix(~ss$Group)
@@ -48,9 +51,11 @@ z <- estimateDisp(z, design,robust=TRUE,prior.df=1)
 fit <- glmFit(z, design)
 lrt <- glmLRT(fit)
 fshd <- as.data.frame(topTags(lrt,n=Inf))
+write.table(fshd,file="fshd.tsv",sep='\t',quote=FALSE)
 
 fshd_up <- rownames(subset(fshd,FDR<0.05 & logFC>0))
 fshd_dn <- rownames(subset(fshd,FDR<0.05 & logFC<0))
+fshd_subset <- rownames(subset(fshd,FDR<0.05 & logFC>2))
 
 # Read in Watt data
 # human 
@@ -59,6 +64,7 @@ rownames(h) <- sapply(strsplit(rownames(h),"_"),"[[",1)
 
 h_up <- rownames(subset(h,FDR<0.05 & logFC>0))
 h_dn <- rownames(subset(h,FDR<0.05 & logFC<0))
+h_subset <- rownames(subset(h,FDR<0.05 & logFC>2))
 
 v1 <- list("fshd up"=fshd_up, "fshd dn"=fshd_dn,
   "h up"=h_up,"h dn"=h_dn)
@@ -109,6 +115,7 @@ dge$Row.names=NULL
 dge<-dge[order(dge$PValue),]
 head(dge,10)
 jm <- dge
+write.table(jm,file="jm.tsv",sep='\t',quote=FALSE)
 
 sss <- subset(ss,mcm==1|dtgs==1)
 design <- model.matrix(~sss$dtgs)
@@ -175,12 +182,15 @@ Calculate overlap
 
 jm_up <- rownames(subset(jm,FDR<0.05 & logFC>0))
 jm_dn <- rownames(subset(jm,FDR<0.05 & logFC<0))
+jm_subset <- rownames(subset(jm,FDR<0.05 & logFC>2))
 
 h_up <- rownames(subset(h,FDR<0.05 & logFC>0))
 h_dn <- rownames(subset(h,FDR<0.05 & logFC<0))
+h_subset <- rownames(subset(h,FDR<0.05 & logFC>2))
 
 ms_up <- rownames(subset(ms,FDR<0.05 & logFC>0))
 ms_dn <- rownames(subset(ms,FDR<0.05 & logFC<0))
+ms_subset <- rownames(subset(ms,FDR<0.05 & logFC>2))
 
 l <- list("jm_up"=jm_up,"jm_dn"=jm_dn,
   "h_up"=h_up,"h_dn"=h_dn,
@@ -195,16 +205,33 @@ unlist(lapply(l,length))
 # convert lists to human gene names
 jm_up <- unique(gtm[which(gtm$V2 %in% jm_up ),2])
 jm_dn <- unique(gtm[which(gtm$V2 %in% jm_dn ),2])
+jm_subset <- unique(gtm[which(gtm$V2 %in% jm_subset ),2])
+writeLines(jm_subset,con="jonesmouse_subset.txt")
 
 h_up <- unique(gth[which(gth$V1 %in% h_up ),2])
 h_dn <- unique(gth[which(gth$V1 %in% h_dn ),2])
+h_subset <- unique(gth[which(gth$V1 %in% h_subset ),2])
+writeLines(h_subset,con="humanmodel_subset.txt")
 
 ms_up <- unique(gtm[which(gtm$V2 %in% ms_up ),2])
 ms_dn <- unique(gtm[which(gtm$V2 %in% ms_dn ),2])
+ms_subset <- unique(gtm[which(gtm$V2 %in% ms_subset ),2])
+writeLines(ms_subset,con="wattmouse_subset.txt")
 
 fshd_up <- unique(gth[which(gth$V1 %in% fshd_up ),2])
 fshd_dn <- unique(gth[which(gth$V1 %in% fshd_dn ),2])
+fshd_subset <- unique(gth[which(gth$V1 %in% fshd_subset ),2])
+writeLines(fshd_subset,con="fshd_subset.txt")
 
+# venn of subsets
+v1 <- list("Jones mouse"=jm_subset,
+  "human model"=h_subset,
+  "fshd" = fshd_subset,
+  "Watt mouse"=ms_subset )
+
+plot(euler(v1),quantities = TRUE,main="subset genes: FDR<0.05 & LogFC>2")
+
+upset(fromList(v1), order.by = "freq", nsets=6)
 
 v1 <- list("jm up"=jm_up, 
   "jm dn"=jm_dn,
@@ -215,7 +242,7 @@ v1 <- list("jm up"=jm_up,
   "ms up"=ms_up,
   "ms dn"=ms_dn )
 
-plot(euler(v1),quantities = TRUE)
+plot(euler(v1),quantities = TRUE,main="FDR genes")
 
 upset(fromList(v1), order.by = "freq", nsets=6)
 
