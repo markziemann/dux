@@ -1,0 +1,159 @@
+---
+title: "Multi-contrast enrichment analysis of DUX data"
+author: "Mark Ziemann"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+theme: cosmo
+---
+
+# Introduction
+
+The goal here is to perform enrichment analysis with the human and mouse DUX data.
+
+```{r,libs}
+library("mitch")
+library("DESeq2")
+library("edgeR")
+
+```
+
+
+# Prepare Jones data
+
+1. MCM: strain: ACTA1-MCM/+; treatment: no tamoxifen (CONTROL)
+
+2. FLExD: strain: FLExDUX4/+treatment: no tamoxifen (DO NOT USE)
+
+3. dTGM: strain: FLExDUX4/+;MCM/+ treatment: one 5 mg/kg IP injection of tamoxifen (CASE - MILD)
+
+4. dTGS: FLExDUX4/+;MCM/+ treatment: two 10 mg/kg IP injections of tamoxifen on consecutive days (CASE - SEVERE)
+
+```{r,jones}
+
+# mouse GSE122562
+#URL="https://ftp.ncbi.nlm.nih.gov/geo/series/GSE122nnn/GSE122562/suppl/GSE122562_gene_counts$
+j <- read.table("GSE122562_gene_counts_table.tsv.gz",header=TRUE,row.names=1)
+j[,1]<-NULL
+ss <- as.data.frame(colnames(j))
+ss$mcm <- grepl("MCM",ss[,1])*1
+ss$flexd <- grepl("FLExD",ss[,1])*1
+ss$dtgm <- grepl("dTGM",ss[,1])*1
+ss$dtgs <- grepl("dTGS",ss[,1])*1
+rownames(ss) <- ss[,1]
+ss[,1]<-NULL
+# here set the contrast
+sss <- subset(ss,mcm==1|dtgm==1)
+design <- model.matrix(~sss$dtgm)
+rownames(design) <- rownames(sss)
+jj <- j[,which(colnames(j) %in% rownames(design) )]
+jj <- jj[which(rowMeans(jj)>10),]
+z <- DGEList(counts=jj)
+z <- calcNormFactors(z)
+z <- estimateDisp(z, design,robust=TRUE,prior.df=1)
+fit <- glmFit(z, design)
+lrt<-glmLRT(fit)
+dge<-as.data.frame(topTags(lrt,n=Inf))
+dge$dispersion<-lrt$dispersion
+dge<-merge(dge,lrt$fitted.values,by='row.names')
+rownames(dge)=dge$Row.names
+dge$Row.names=NULL
+dge<-dge[order(dge$PValue),]
+head(dge,10)
+jm <- dge
+
+sss <- subset(ss,mcm==1|dtgs==1)
+design <- model.matrix(~sss$dtgs)
+rownames(design) <- rownames(sss)
+jj <- j[,which(colnames(j) %in% rownames(design) )]
+jj <- jj[which(rowMeans(jj)>10),]
+z <- DGEList(counts=jj)
+z <- calcNormFactors(z)
+z <- estimateDisp(z, design,robust=TRUE,prior.df=1)
+fit <- glmFit(z, design)
+lrt<-glmLRT(fit)
+dge<-as.data.frame(topTags(lrt,n=Inf))
+dge$dispersion<-lrt$dispersion
+dge<-merge(dge,lrt$fitted.values,by='row.names')
+rownames(dge)=dge$Row.names
+dge$Row.names=NULL
+dge<-dge[order(dge$PValue),]
+head(dge,10)
+js <- dge
+
+```
+
+# Read in Watt data
+
+```{r,read}
+
+# human 
+h <- read.table("dux2_edgeR_edger.tsv",header=TRUE,row.names=1)
+rownames(h) <- sapply(strsplit(rownames(h),"_"),"[[",1)
+
+# mouse simple
+# we're not using the factorial
+ms <- read.table("EVvsDUX_wDOX_paired.tsv",header=TRUE,row.names=1)
+rownames(ms) <- sapply(strsplit(rownames(ms),"_"),"[[",1)
+
+# ortholog mapping
+orth <- read.table("mouse2human.txt.sort")
+
+# gene name mapping human
+gth <- orth[,c(1,3)]
+
+# gene name mapping human
+gtm <- orth[,c(2,3)]
+
+```
+
+# Get gene sets
+
+```{r,geneset}
+
+#download.file("https://reactome.org/download/current/ReactomePathways.gmt.zip", destfile="ReactomePathways.gmt.zip")
+#unzip("ReactomePathways.gmt.zip")
+genesets <- gmt_import("ReactomePathways.gmt")
+
+```
+
+# Prepare data for running mitch
+
+```{r,mitch1}
+
+hh <- mitch_import(x=h,DEtype="edger",geneTable=gth)
+
+mm <- list("ms"=ms,"jm"=jm,"js"=js)
+mmm <- mitch_import(x=mm,DEtype="edger",geneTable=gtm)
+
+
+mg <- merge(hh,mmm,by=0)
+rownames(mg) <- mg[,1]
+mg[,1]<-NULL
+colnames(mg) <- c("human","mouse","jmod","jsev")
+dim(mg)
+head(mg)
+
+res1 <- mitch_calc(x=mg,genesets=genesets,priority="effect")
+head(res1$enrichment_result,20)
+unlink("mitch_plots_simple_eff.html")
+capture.output(
+    mitch_report(res1,"mitch_plots_simple_eff.html")
+  ,file = "/dev/null", append = FALSE,
+  type = c("output", "message"), split = FALSE)
+
+#res2 <- mitch_calc(x=mg,genesets=genesets,priority="significance")
+#head(res2$enrichment_result,20)
+#unlink("mitch_plots_simple_sig.html")
+#mitch_report(res2,"mitch_plots_simple_sig.html")
+
+```
+
+# Session information
+
+```{r,session}
+
+sessionInfo()
+
+```
