@@ -358,25 +358,25 @@ Here we run mitch unidimensional and then create Venn diagrams of the FDR gene s
 ```{r,mitch_unidimensional,fig.height=8,fig.width=8}
 
 fshdm <- mitch_import( fshd,DEtype="edger",geneTable=gth )
-fshdmres <- mitch_calc(x=fshdm,genesets=genesets,priority="effect",resrows=100,cores=CORES)
+fshdmres <- mitch_calc(x=fshdm,genesets=genesets,priority="effect",resrows=100,cores=CORES,minsetsize = 100)
 head(fshdmres$enrichment_result,20)
 fsdhm_up <- subset(fshdmres$enrichment_result,p.adjustANOVA<0.02 & s.dist > 0)$set
 fshdm_dn <- subset(fshdmres$enrichment_result,p.adjustANOVA<0.02 & s.dist < 0)$set
 
 hmm <- mitch_import( h,DEtype="edger",geneTable=gth )
-hres <- mitch_calc(x=hmm,genesets=genesets,priority="effect",resrows=100,cores=CORES)
+hres <- mitch_calc(x=hmm,genesets=genesets,priority="effect",resrows=100,cores=CORES,minsetsize = 100)
 head(hres$enrichment_result,20)
 hres_up <- subset(hres$enrichment_result,p.adjustANOVA<0.02 & s.dist > 0)$set
 hres_dn <- subset(hres$enrichment_result,p.adjustANOVA<0.02 & s.dist < 0)$set
 
 jmm <- mitch_import( jm,DEtype="edger",geneTable=gtm )
-jres <- mitch_calc(x=jmm,genesets=genesets,priority="effect",resrows=100,cores=CORES)
+jres <- mitch_calc(x=jmm,genesets=genesets,priority="effect",resrows=100,cores=CORES,minsetsize = 100)
 head(jres$enrichment_result,20)
 jres_up <- subset(jres$enrichment_result,p.adjustANOVA<0.02 & s.dist > 0)$set
 jres_dn <- subset(jres$enrichment_result,p.adjustANOVA<0.02 & s.dist < 0)$set
 
 msm <- mitch_import( ms,DEtype="edger",geneTable=gtm )
-mres <- mitch_calc(x=msm,genesets=genesets,priority="effect",resrows=100,cores=CORES)
+mres <- mitch_calc(x=msm,genesets=genesets,priority="effect",resrows=100,cores=CORES,minsetsize = 100)
 head(mres$enrichment_result,20)
 mres_up <- subset(mres$enrichment_result,p.adjustANOVA<0.02 & s.dist > 0)$set
 mres_dn <- subset(mres$enrichment_result,p.adjustANOVA<0.02 & s.dist < 0)$set
@@ -410,7 +410,7 @@ Here we run multivariate mitch with different prioritisation schemes.
 
 # effect size
 
-res1 <- mitch_calc(x=mg,genesets=genesets,priority="effect",resrows=100,cores=CORES)
+res1 <- mitch_calc(x=mg,genesets=genesets,priority="effect",resrows=100,cores=CORES,minsetsize = 50)
 
 x <- res1$enrichment_result[1:100,c(4:7)]
 rownames(x) <- res1$enrichment_result$set[1:nrow(x)]
@@ -428,7 +428,7 @@ capture.output(
   type = c("output", "message"), split = FALSE)
 
 # significance
-res3 <- mitch_calc(x=mg,genesets=genesets,priority="significance",resrows=100,cores=CORES)
+res3 <- mitch_calc(x=mg,genesets=genesets,priority="significance",resrows=100,cores=CORES,minsetsize = 50)
 
 x <- res3$enrichment_result[1:100,c(4:7)]
 rownames(x) <- res3$enrichment_result$set[1:nrow(x)]
